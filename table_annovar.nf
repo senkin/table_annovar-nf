@@ -1,3 +1,5 @@
+#!/usr/bin/env nextflow
+
 params.help = null
 params.output_folder = "."
 params.table_extension = "tsv"
@@ -5,7 +7,7 @@ params.cpu = 1
 params.annovar_db = "Annovar_db/"
 params.mem    = 4
 params.buildver = "hg38"
-params.annovar_params = "--codingarg includesnp -protocol ensGene,exac03nontcga,esp6500siv2_all,1000g2015aug_all,gnomad211_genome,gnomad211_exome,clinvar_20190305,revel,dbnsfp35a,dbnsfp31a_interpro,intervar_20180118,cosmic84_coding,cosmic84_noncoding,avsnp150,phastConsElements100way,wgRna -operation g,f,f,f,f,f,f,f,f,f,f,f,f,f,r,r -otherinfo "
+params.annovar_params = "--codingarg -includesnp -protocol refGene,ensGene,exac03nontcga,esp6500siv2_all,1000g2015aug_all,gnomad211_genome,gnomad211_exome,clinvar_20190305,revel,dbnsfp35a,dbnsfp31a_interpro,intervar_20180118,cosmic84_coding,cosmic84_noncoding,avsnp150,phastConsElements100way,wgRna -operation g,g,f,f,f,f,f,f,f,f,f,f,f,f,f,r,r -otherinfo "
 
 if (params.help) {
     log.info ''
@@ -32,27 +34,18 @@ if (params.help) {
 
 log.info "table_folder=${params.table_folder}"
 
-tables = Channel.fromPath( params.table_folder+'/*.'+params.table_extension)
-                 .ifEmpty { error "empty table folder, please verify your input." }
-
-annodb = file( params.annovar_db )
-
-process annovar {
+process Annovar {
+  publishDir params.output_folder, mode: 'copy', pattern: '{*.txt}'
   cpus params.cpu
   memory params.mem+'G'
   tag { file_name }
 
   input:
-  file table from tables
-  file annodb
+  path table
+  path annodb
 
   output:
-  file "*multianno*.txt" into output_annovar_txt
-  file "*multianno*.vcf" optional true into output_annovar_vcf
-  file "*.fa" optional true into coding_changes_fasta
-
-  publishDir params.output_folder, mode: 'copy', pattern: '{*.txt}' 
-  publishDir "${params.output_folder}/coding_changes", mode: 'copy', pattern: '{*.fa}'
+  path "Full_annotation_${file_name}.txt"
 
   shell:
   if(params.table_extension=="vcf"|params.table_extension=="vcf.gz"){
@@ -63,24 +56,22 @@ process annovar {
   file_name = table.baseName
   '''
   table_annovar.pl -buildver !{params.buildver} --thread !{params.cpu} --onetranscript !{vcf} !{params.annovar_params} !{table} !{annodb} -out !{file_name}
+  cat !{file_name}*_multianno.txt | awk '{print "'!{file_name}'\\t" \$0}' \\
+        | sed -e '1s/!{file_name}/SAMPLE/' \\
+        >> Full_annotation_!{file_name}.txt
   '''
 }
 
-process CompressAndIndex {
-    tag { vcf_name }
-
-    input:
-    file(vcf) from output_annovar_vcf
-
-    output:
-    set file("*.vcf.gz"), file("*.vcf.gz.tbi") into output_annovar_vcfgztbi
-
-    publishDir params.output_folder, mode: 'copy'
-
-    shell:
-    vcf_name = vcf.baseName
-    '''
-    bcftools view -O z !{vcf} > !{vcf_name}.vcf.gz
-    bcftools index -t !{vcf_name}.vcf.gz
-    '''
+workflow {
+    // Grab input files
+    tables = Channel.fromPath( params.table_folder+'/*.'+params.table_extension)
+                 .ifEmpty { error "empty table folder, please verify your input." }
+    // Launch the pipeline and merge inputs in a single file
+    Annovar(tables, params.annovar_db) \
+        | collectFile(name: 'full_annotation.txt', \
+            newLine: false, \
+            keepHeader: true, \
+            skip: 1, \
+            sort: { file -> file.baseName }, \
+            storeDir: params.output_folder)
 }

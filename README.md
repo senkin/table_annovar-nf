@@ -1,4 +1,4 @@
-# table_annovar-nf
+# table_annovar-nf (DSL2 implementation)
 ## Nextflow pipeline to annotate variant files with annovar
 
 [![Docker Hub](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com/r/iarcbioinfo/table_annovar-nf/)
@@ -10,7 +10,7 @@
 This pipeline runs table_annovar.pl on a folder full of vcf files.
 
 #### Dependencies
-1. This pipeline is based on [nextflow](https://www.nextflow.io). As we have several nextflow pipelines, we have centralized the common information in the [IARC-nf](https://github.com/IARCbioinfo/IARC-nf) repository. Please read it carefully as it contains essential information for the installation, basic usage and configuration of nextflow and our pipelines.
+1. This pipeline is based on [nextflow](https://www.nextflow.io) (DSL2). As we have several nextflow pipelines, we have centralized the common information in the [IARC-nf](https://github.com/IARCbioinfo/IARC-nf) repository. Please read it carefully as it contains essential information for the installation, basic usage and configuration of nextflow and our pipelines.
 
 2. External software:  
   * [annovar](http://annovar.openbioinformatics.org/en/latest/)  
