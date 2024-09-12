@@ -35,7 +35,6 @@ if (params.help) {
 log.info "table_folder=${params.table_folder}"
 
 process Annovar {
-  publishDir params.output_folder, mode: 'copy', pattern: '{*.txt}'
   cpus params.cpu
   memory params.mem+'G'
   tag { file_name }
@@ -55,11 +54,40 @@ process Annovar {
   }
   file_name = table.baseName
   '''
-  table_annovar.pl -buildver !{params.buildver} --thread !{params.cpu} --onetranscript !{vcf} !{params.annovar_params} !{table} !{annodb} -out !{file_name}
+  bcftools view -i "%FILTER='PASS'" !{table} > filtered_!{file_name}
+  table_annovar.pl -buildver !{params.buildver} --thread !{params.cpu} --onetranscript !{vcf} !{params.annovar_params} filtered_!{file_name} !{annodb} -out !{file_name}
   cat !{file_name}*_multianno.txt | awk '{print "'!{file_name}'\\t" \$0}' \\
         | sed -e '1s/!{file_name}/SAMPLE/' \\
         >> Full_annotation_!{file_name}.txt
   '''
+}
+
+process FilterFunctional {
+  publishDir params.output_folder, mode: 'copy', pattern: '{*.txt}'
+  cpus params.cpu
+  tag { file_name }
+
+  input:
+  path table
+
+  output:
+  path "Filtered_annotation_${table}"
+
+  script:
+  """
+  #!/usr/bin/env python
+  import pandas as pd
+  full_annotation = pd.read_csv("${table}", sep='\t')
+  # apply filters on Func.ensGene (splicing or exonic)
+  full_annotation = full_annotation[(full_annotation['Func.ensGene']=='splicing') | (full_annotation['Func.ensGene']=='exonic')]
+  # apply filters on ExonicFunc.ensGene (splicing or exonic)
+  full_annotation = full_annotation[(full_annotation['ExonicFunc.ensGene']=='nonsynonymous SNV') | (full_annotation['ExonicFunc.ensGene']=='stopgain') | (full_annotation['ExonicFunc.ensGene']=='startloss') | (full_annotation['ExonicFunc.ensGene']=='nonframeshift deletion') | (full_annotation['ExonicFunc.ensGene']=='frameshift deletion')]
+  # apply filters on clinvar significance (excluding benign/likely benign)
+  full_annotation = full_annotation[(full_annotation['CLNSIG']!='Benign') & (full_annotation['CLNSIG']!='Likely_benign')  & (full_annotation['CLNSIG']!='Benign/Likely_benign') ]
+  full_annotation.reset_index(inplace=True)
+  full_annotation.drop(['index'], axis=1, inplace=True)
+  full_annotation.to_csv('Filtered_annotation_${table}',sep='\t')
+  """
 }
 
 workflow {
@@ -67,7 +95,7 @@ workflow {
     tables = Channel.fromPath( params.table_folder+'/*.'+params.table_extension)
                  .ifEmpty { error "empty table folder, please verify your input." }
     // Launch the pipeline and merge inputs in a single file
-    Annovar(tables, params.annovar_db) \
+    Annovar(tables, params.annovar_db) | FilterFunctional \
         | collectFile(name: 'full_annotation.txt', \
             newLine: false, \
             keepHeader: true, \
