@@ -7,7 +7,8 @@ params.cpu = 1
 params.annovar_db = "Annovar_db/"
 params.mem    = 4
 params.buildver = "hg38"
-params.annovar_params = "--codingarg -includesnp -protocol refGene,ensGene,exac03nontcga,esp6500siv2_all,1000g2015aug_all,gnomad211_genome,gnomad211_exome,clinvar_20190305,revel,dbnsfp35a,dbnsfp31a_interpro,intervar_20180118,cosmic84_coding,cosmic84_noncoding,avsnp150,phastConsElements100way,wgRna -operation g,g,f,f,f,f,f,f,f,f,f,f,f,f,f,r,r -otherinfo "
+params.annovar_params = "--codingarg -includesnp -intronhgvs -protocol refGene,ensGene,exac03nontcga,esp6500siv2_all,1000g2015aug_all,gnomad211_genome,gnomad211_exome,clinvar_20190305,revel,dbnsfp35a,dbnsfp31a_interpro,intervar_20180118,cosmic84_coding,cosmic84_noncoding,avsnp150,phastConsElements100way,wgRna -operation g,g,f,f,f,f,f,f,f,f,f,f,f,f,f,r,r -otherinfo "
+params.filter_functional = true
 
 if (params.help) {
     log.info ''
@@ -79,7 +80,7 @@ process FilterFunctional {
   import pandas as pd
   full_annotation = pd.read_csv("${table}", sep='\t')
   # apply filters on Func.ensGene (splicing or exonic)
-  full_annotation = full_annotation[(full_annotation['Func.ensGene']=='splicing') | (full_annotation['Func.ensGene']=='exonic')]
+  full_annotation = full_annotation[(full_annotation['Func.ensGene']=='splicing') | (full_annotation['Func.ensGene']=='exonic') | (full_annotation['Func.ensGene']=='intronic')]
   # apply filters on ExonicFunc.ensGene (splicing or exonic)
   full_annotation = full_annotation[(full_annotation['ExonicFunc.ensGene']=='nonsynonymous SNV') | (full_annotation['ExonicFunc.ensGene']=='stopgain') | (full_annotation['ExonicFunc.ensGene']=='startloss') | (full_annotation['ExonicFunc.ensGene']=='nonframeshift deletion') | (full_annotation['ExonicFunc.ensGene']=='frameshift deletion')]
   # apply filters on clinvar significance (excluding benign/likely benign)
@@ -95,8 +96,14 @@ workflow {
     tables = Channel.fromPath( params.table_folder+'/*.'+params.table_extension)
                  .ifEmpty { error "empty table folder, please verify your input." }
     // Launch the pipeline and merge inputs in a single file
-    Annovar(tables, params.annovar_db) | FilterFunctional \
-        | collectFile(name: 'full_annotation.txt', \
+    Annovar(tables, params.annovar_db) \
+        | (params.filter_functional ? FilterFunctional : collectFile(name: 'full_annotation.txt', \
+            newLine: false, \
+            keepHeader: true, \
+            skip: 1, \
+            sort: { file -> file.baseName }, \
+            storeDir: params.output_folder)) \
+        | collectFile(name: 'filtered_annotation.txt', \
             newLine: false, \
             keepHeader: true, \
             skip: 1, \
